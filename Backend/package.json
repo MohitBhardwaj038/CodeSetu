@@ -1,0 +1,29 @@
+{
+  "name": "code-setu",
+  "version": "1.0.0",
+  "description": "��#\u0000 \u0000C\u0000o\u0000d\u0000e\u0000S\u0000e\u0000t\u0000u\u0000\r\u0000 \u0000",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon ./src/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MohitBhardwaj038/CodeSetu.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/MohitBhardwaj038/CodeSetu/issues"
+  },
+  "homepage": "https://github.com/MohitBhardwaj038/CodeSetu#readme",
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "mongoose": "^9.3.0"
+  }
+}
