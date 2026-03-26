@@ -10,4 +10,5 @@ import submissionRoutes from './routes/submission.route.js';
 app.use('/api',problemRoutes);
 app.use('/api',testCaseRoutes);
 app.use('/api',submissionRoutes);
+
 export default app;
