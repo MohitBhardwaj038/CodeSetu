@@ -1,5 +1,4 @@
-const User = require("../models/User");
-
+import {User} from "../models/User.js";
 // ─────────────────────────────────────────────
 // @route   GET /api/user/profile
 // @desc    Get authenticated user's own profile
@@ -81,4 +80,4 @@ const deleteUser = async (req, res, next) => {
   }
 };
 
-module.exports = { getProfile, getAllUsers, deleteUser };
+export  { getProfile, getAllUsers, deleteUser };

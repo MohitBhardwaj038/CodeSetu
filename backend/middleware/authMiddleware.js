@@ -1,6 +1,6 @@
-const jwt = require("jsonwebtoken");
-const User = require("../models/User");
-
+import jwt from "jsonwebtoken";
+import {User} from "../models/User.js";
+import env from "../utils/env.js";
 /**
  * Middleware to protect routes — verifies JWT Bearer token
  */
@@ -24,7 +24,7 @@ const protect = async (req, res, next) => {
     }
 
     console.log(`🔍 [Auth Middleware] Verifying JWT token...`);
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, env.JWT_SECRET);
 
     const user = await User.findById(decoded.id).select("-password");
     if (!user) {
@@ -67,4 +67,4 @@ const authorize = (...roles) => {
   };
 };
 
-module.exports = { protect, authorize };
+export { protect, authorize };

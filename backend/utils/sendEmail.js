@@ -1,13 +1,14 @@
-const nodemailer = require("nodemailer");
+import nodemailer from "nodemailer";
+import env from "./env.js";
 
 // Create reusable Gmail transporter using App Password
 const createTransporter = () => {
-  console.log(`📧 [Mailer] Initializing Gmail transporter for: ${process.env.GMAIL_USER}`);
+  console.log(`📧 [Mailer] Initializing Gmail transporter for: ${env.GMAIL_USER}`);
   return nodemailer.createTransport({
     service: "gmail",
     auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD,
+      user: env.GMAIL_USER,
+      pass: env.GMAIL_PASS,
     },
   });
 };
@@ -30,7 +31,7 @@ const sendOtpEmail = async (to, otp, purpose) => {
     purpose === "register" ? "complete your registration" : "log in to your account";
 
   const mailOptions = {
-    from: `"Auth App" <${process.env.GMAIL_USER}>`,
+    from: `"Auth App" <${env.GMAIL_USER}>`,
     to,
     subject,
     html: `
@@ -41,7 +42,7 @@ const sendOtpEmail = async (to, otp, purpose) => {
           ${otp}
         </div>
         <p style="color: #888; font-size: 13px;">
-          This OTP is valid for <strong>${process.env.OTP_EXPIRY_MINUTES || 10} minutes</strong>. Do NOT share it with anyone.
+          This OTP is valid for <strong>${env.OTP_EXPIRY_MINUTES || 10} minutes</strong>. Do NOT share it with anyone.
         </p>
         <hr style="border: none; border-top: 1px solid #eee;" />
         <p style="color: #bbb; font-size: 11px;">If you didn't request this, please ignore this email.</p>
@@ -55,4 +56,4 @@ const sendOtpEmail = async (to, otp, purpose) => {
   return info;
 };
 
-module.exports = sendOtpEmail;
+export default sendOtpEmail;
