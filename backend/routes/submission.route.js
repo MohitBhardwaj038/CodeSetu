@@ -4,7 +4,7 @@ import { createSubmission, getSubmissionsByUser,run} from '../controllers/submis
 const router = express.Router({mergeParams:true});
 
 router.route('/problems/:problemId/submissions').post(createSubmission);
-router.route('/problems/:problemId/run-code').get(run);
+router.route('/problems/:problemId/run-code').post(run);
 router.route('/problems/:problemId/submissions/:userId').get(getSubmissionsByUser);
 
 export default router;

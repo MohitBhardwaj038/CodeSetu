@@ -3,99 +3,92 @@ import { Submission } from "../models/submission.model.js";
 import ApiError from "../utils/apiError.js";
 import { TestCase } from "../models/testCase.model.js";
 import env from "../utils/env.js";
+import { buildSubmissionCode } from "../utils/codeWrapper.js";
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function parseInput(input) {
-  if (!input.includes("=")) return { declarations: "", variables: [] };
-
-  const parts = input.match(/(\w+\s*=\s*\[[^\]]*\]|\w+\s*=\s*[^,]+)/g);
-
-  const variables = [];
-  const declarations = parts
-    .map((part) => {
-      const [key, value] = part.split("=").map((x) => x.trim());
-      variables.push(key);
-      return `const ${key} = ${value};`;
-    })
-    .join("\n");
-
-  return { declarations, variables };
-}
-
-function getFunctionName(code) {
-  const match =
-    code.match(/function\s+(\w+)\s*\(/) ||
-    code.match(/var\s+(\w+)\s*=\s*function/) ||
-    code.match(/const\s+(\w+)\s*=\s*\(/); 
-
-  return match ? match[1] : null;
-}
-
-const generateWrappedCode = (code, input) => {
-  const functionName = getFunctionName(code);
-
-  if (!functionName) {
-    console.error("Function name not found");
-    return code;
-  }
-
-  const { declarations, variables } = parseInput(input);
-
-  const wrappedCode = `
-${code}
-
-${declarations}
-
-const result = ${functionName}(${variables.join(", ")});
-console.log(JSON.stringify(result));
-`;
-
-  console.log("Wrapped Code:\n", wrappedCode);
-  return wrappedCode;
-};
-
-
-const runCode = async (req,res,next) => {
+const runCode = async (req, res, next) => {
   try {
-    const {problemId} = req.params;
-    const {code, languageId } = req.body;
+    const { problemId } = req.params;
+    const { code, languageId } = req.body;
     if (!code || !languageId) {
       return next(new ApiError("Missing required fields", 400));
     }
 
-    const testCases = await TestCase.findOne({problemId, isHidden: false});
-    if (testCases.length === 0) {
-      return next(new ApiError("No visible test cases found for this problem",404));
+    const testCases = await TestCase.find({ problemId, isHidden: false });
+    if (!testCases || testCases.length === 0) {
+      return next(
+        new ApiError("No visible test cases found for this problem", 404)
+      );
     }
-    const testCase = testCases[0];
-    const source_code = 
-    parseInt(languageId, 10) === 63
-    ? generateWrappedCode(code, testCase.input)
-    : code;
 
-    const response = await axios.post(
-      `${env.JUDGE0_API_URL}?base64_encoded=false`,
-      {
-        language_id: parseInt(languageId, 10), // FORCE THIS TO BE A NUMBER
-      source_code,  
-      }
+    // 1. Create a batch submission for all visible test cases
+    const submissionPayload = {
+      submissions: testCases.map((tc) => {
+        const { sourceCode, usesStdin } = buildSubmissionCode(
+          code,
+          tc.input,
+          parseInt(languageId, 10)
+        );
+        return {
+          language_id: parseInt(languageId, 10),
+          source_code: sourceCode,
+          stdin: usesStdin ? tc.input : undefined,
+        };
+      }),
+    };
+
+    // 2. Post the batch and get tokens
+    const submissionResponse = await axios.post(
+      `${env.JUDGE0_API_URL}?base64_encoded=false&wait=false`,
+      submissionPayload
     );
-    const result = response.data;
 
-    return res.status(200).json(
-      {
-        status: "success",
-        output: result.stdout?.trim() || result.stderr || result.compile_output || "No output",
+    const tokens = submissionResponse.data.map((sub) => sub.token);
+    if (!tokens || tokens.length === 0) {
+      return next(new ApiError("Failed to get submission tokens from Judge0", 500));
+    }
+
+    const judge0BaseUrl = env.JUDGE0_API_URL.replace('/batch', '');
+    let finalResults = [];
+
+    // 3. Poll for each result individually
+    for (const token of tokens) {
+      while (true) {
+        const resultResponse = await axios.get(`${judge0BaseUrl}/${token}?base64_encoded=false`);
+        const statusId = resultResponse.data.status.id;
+
+        if (statusId > 2) { // Statuses 1 (In Queue) and 2 (Processing) are pending
+          finalResults.push(resultResponse.data);
+          break;
+        }
+        await delay(250); // Wait before polling again
+      }
+    }
+
+    // 4. Format and return the array of results
+    const results = finalResults.map((result, index) => {
+      const testCase = testCases[index];
+      return {
+        input: testCase.input,
+        expectedOutput: testCase.expectedOutput,
+        actualOutput: result.stdout?.trim() || result.stderr || result.compile_output || "No output",
+        status: result.status.description,
         time: result.time ? parseFloat(result.time) * 1000 : null,
         memory: result.memory || null,
-      }
-    )
+      };
+    });
+
+    return res.status(200).json({
+      status: "success",
+      results,
+    });
+
   } catch (error) {
     console.error("JUDGE0 ERROR DATA:", error.response?.data || error.message);
     next(error);
   }
-}
+};
 const createSubmission = async (req, res, next) => {
   try {
     const { problemId } = req.params;
@@ -110,14 +103,15 @@ const createSubmission = async (req, res, next) => {
     }
     const submissionPayload = {
       submissions: testCases.map((tc) => {
-        const source_code =
-          parseInt(languageId, 10) === 63
-            ? String(generateWrappedCode(code, tc.input))
-            : String(code);
+        const { sourceCode, usesStdin } = buildSubmissionCode(
+          code,
+          tc.input,
+          parseInt(languageId, 10)
+        );
         return {
           language_id: parseInt(languageId, 10), // FORCE THIS TO BE A NUMBER
-          source_code,
-          stdin: tc.input ? String(tc.input) : "",
+          source_code: String(sourceCode),
+          stdin: usesStdin && tc.input ? String(tc.input) : "",
           expected_output: tc.expectedOutput ? String(tc.expectedOutput) : "",
         };
       }),
