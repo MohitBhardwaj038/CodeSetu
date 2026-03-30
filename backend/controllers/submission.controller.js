@@ -1,11 +1,18 @@
 import axios from "axios";
 import { Submission } from "../models/submission.model.js";
+import { Problem } from "../models/problem.model.js";
 import ApiError from "../utils/apiError.js";
 import { TestCase } from "../models/testCase.model.js";
 import env from "../utils/env.js";
 import { buildSubmissionCode } from "../utils/codeWrapper.js";
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const buildUserProblemState = (submissionStatus) => ({
+  attempted: true,
+  submittedSuccessfully: submissionStatus === "Accepted",
+  lastSubmissionStatus: submissionStatus,
+});
 
 const runCode = async (req, res, next) => {
   try {
@@ -34,6 +41,7 @@ const runCode = async (req, res, next) => {
           language_id: parseInt(languageId, 10),
           source_code: sourceCode,
           stdin: usesStdin ? tc.input : undefined,
+          expected_output: tc.expectedOutput ? String(tc.expectedOutput) : undefined,
         };
       }),
     };
@@ -79,8 +87,12 @@ const runCode = async (req, res, next) => {
       };
     });
 
+    const overallStatus =
+      results.find((item) => item.status !== "Accepted")?.status || "Accepted";
+
     return res.status(200).json({
       status: "success",
+      runStatus: overallStatus,
       results,
     });
 
@@ -97,7 +109,6 @@ const createSubmission = async (req, res, next) => {
       return next(new ApiError("Missing required fields", 400));
     }
     const testCases = await TestCase.find({ problemId });
-    const visibleTestCases = testCases.filter((tc) => !tc.isHidden);
     if (testCases.length === 0) {
       return next(new ApiError("No test cases found for this problem", 404));
     }
@@ -177,9 +188,25 @@ const createSubmission = async (req, res, next) => {
       failedTestCase,
     });
 
+    const problem = await Problem.findById(problemId);
+    if (problem) {
+      problem.totalSubmissions = (problem.totalSubmissions || 0) + 1;
+      if (finalStatus === "Accepted") {
+        problem.totalAccepted = (problem.totalAccepted || 0) + 1;
+      }
+      problem.acceptanceRate =
+        problem.totalSubmissions > 0
+          ? Number(((problem.totalAccepted / problem.totalSubmissions) * 100).toFixed(2))
+          : 0;
+      await problem.save();
+    }
+
     res.status(201).json({
       status: "success",
-      data: { submission: newSubmission },
+      data: {
+        submission: newSubmission,
+        userProblemState: buildUserProblemState(finalStatus),
+      },
     });
   } catch (error) {
     console.error("JUDGE0 ERROR DATA:", error.response?.data || error.message);
