@@ -178,6 +178,9 @@ function StepCard({ number, title, description, delay }) {
 /* ═══════════════════════════════════════════════ */
 
 export default function Landing() {
+  const user = JSON.parse(localStorage.getItem("codesetu_user") || "null");
+  const ctaTarget = user ? "/problems" : "/register";
+
   return (
     <div className="min-h-screen bg-surface-950 overflow-hidden">
       <Navbar />
@@ -208,8 +211,8 @@ export default function Landing() {
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start animate-slide-up-delay-2">
-                <Link to="/register" className="btn-primary text-base">
-                  Start Coding Free
+                <Link to={ctaTarget} className="btn-primary text-base">
+                  {user ? "Go to Problems" : "Start Coding Free"}
                   <ArrowRightIcon />
                 </Link>
                 <a href="#features" className="btn-secondary text-base">
@@ -336,10 +339,10 @@ export default function Landing() {
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <Link
-                    to="/register"
+                    to={ctaTarget}
                     className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white text-primary-700 font-bold rounded-xl hover:bg-white/90 transition-all duration-300 hover:-translate-y-1 shadow-lg hover:shadow-xl text-base"
                   >
-                    Get Started — It&apos;s Free
+                    {user ? "Explore Problems" : "Get Started \u2014 It\u2019s Free"}
                     <ArrowRightIcon />
                   </Link>
                 </div>

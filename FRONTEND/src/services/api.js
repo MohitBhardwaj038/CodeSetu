@@ -21,7 +21,6 @@ async function request(endpoint, options = {}) {
   const data = await response.json();
 
   if (!response.ok) {
-    // Extract the most useful error message
     const errorMsg =
       data.message ||
       (data.errors && data.errors[0]?.msg) ||
@@ -34,11 +33,6 @@ async function request(endpoint, options = {}) {
 
 // ─── Auth API ────────────────────────────────────
 
-/**
- * Step 1: Send registration OTP
- * @param {string} name
- * @param {string} email
- */
 export async function registerRequest(name, email) {
   return request("/auth/register", {
     method: "POST",
@@ -46,12 +40,6 @@ export async function registerRequest(name, email) {
   });
 }
 
-/**
- * Step 2: Verify OTP and set password
- * @param {string} email
- * @param {string} otp
- * @param {string} password
- */
 export async function verifyOtp(email, otp, password) {
   return request("/auth/register/verify", {
     method: "POST",
@@ -59,11 +47,6 @@ export async function verifyOtp(email, otp, password) {
   });
 }
 
-/**
- * Login with email and password → returns JWT
- * @param {string} email
- * @param {string} password
- */
 export async function loginUser(email, password) {
   return request("/auth/login", {
     method: "POST",
@@ -80,31 +63,83 @@ export async function getProfile() {
 // ─── Problems API ────────────────────────────────
 
 /**
- * Fetch all available problems
+ * Fetch problems with optional filtering, sorting, pagination
+ * @param {Object} params - { search, difficulty, tag, sortBy, page, limit, userId }
  */
-export async function getAllProblems() {
-  return request("/problems", { method: "GET" });
+export async function getAllProblems(params = {}) {
+  const query = new URLSearchParams();
+  if (params.search) query.set("search", params.search);
+  if (params.difficulty) query.set("difficulty", params.difficulty);
+  if (params.tag) query.set("tag", params.tag);
+  if (params.sortBy) query.set("sortBy", params.sortBy);
+  if (params.page) query.set("page", params.page);
+  if (params.limit) query.set("limit", params.limit);
+  if (params.userId) query.set("userId", params.userId);
+
+  const qs = query.toString();
+  return request(`/problems${qs ? `?${qs}` : ""}`, { method: "GET" });
 }
 
 /**
- * Fetch a single problem by its slug
- * @param {string} slug 
+ * Fetch a single problem by slug
+ * @param {string} slug
+ * @param {string} [userId] - optional, for userProblemState
  */
-export async function getProblemBySlug(slug) {
-  return request(`/problems/${slug}`, { method: "GET" });
+export async function getProblemBySlug(slug, userId) {
+  const qs = userId ? `?userId=${userId}` : "";
+  return request(`/problems/${slug}${qs}`, { method: "GET" });
+}
+
+/**
+ * Get all unique topic tags for filter dropdowns
+ */
+export async function getTags() {
+  return request("/problems/tags", { method: "GET" });
+}
+
+/**
+ * Get all unique company tags for filter dropdowns
+ */
+export async function getCompanyTags() {
+  return request("/problems/company-tags", { method: "GET" });
 }
 
 // ─── Submission API ──────────────────────────────
 
 /**
- * Run code against test cases (Judge0)
- * @param {string} problemId 
- * @param {number} languageId 
- * @param {string} code 
+ * Run code against visible test cases (no save)
+ * @param {string} problemId
+ * @param {number} languageId
+ * @param {string} code
  */
 export async function runCode(problemId, languageId, code) {
   return request(`/problems/${problemId}/run-code`, {
     method: "POST",
     body: JSON.stringify({ languageId, code }),
+  });
+}
+
+/**
+ * Submit code for grading against ALL test cases (saves submission)
+ * @param {string} problemId
+ * @param {number} languageId
+ * @param {string} code
+ * @param {string} userId
+ */
+export async function submitCode(problemId, languageId, code, userId) {
+  return request(`/problems/${problemId}/submissions`, {
+    method: "POST",
+    body: JSON.stringify({ languageId, code, userId }),
+  });
+}
+
+/**
+ * Get user's submissions for a specific problem
+ * @param {string} problemId
+ * @param {string} userId
+ */
+export async function getUserSubmissions(problemId, userId) {
+  return request(`/problems/${problemId}/submissions/${userId}`, {
+    method: "GET",
   });
 }
