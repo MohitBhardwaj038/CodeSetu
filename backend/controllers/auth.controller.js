@@ -1,10 +1,10 @@
-const bcrypt = require("bcryptjs");
-const { validationResult } = require("express-validator");
-const User = require("../models/User");
-const Otp = require("../models/Otp");
-const generateOtp = require("../utils/generateOtp");
-const sendOtpEmail = require("../utils/sendEmail");
-const generateToken = require("../utils/generateToken");
+import bcrypt from 'bcryptjs';
+import { validationResult } from 'express-validator';
+import {User} from '../models/User.js';
+import {Otp} from '../models/Otp.js';
+import generateOtp from '../utils/generateOtp.js';
+import sendOtpEmail from '../utils/sendEmail.js';
+import generateToken from '../utils/generateToken.js';
 
 // ─────────────────────────────────────────────
 // @route   POST /api/auth/register
@@ -216,4 +216,4 @@ const login = async (req, res, next) => {
   }
 };
 
-module.exports = { registerRequest, verifyRegisterOtp, login };
+export { registerRequest, verifyRegisterOtp, login };

@@ -1,3 +1,4 @@
+import env from "../utils/env.js";
 /**
  * Global error handler middleware
  * Must be the LAST middleware registered in server.js
@@ -38,15 +39,16 @@ const errorHandler = (err, req, res, next) => {
   }
 
   console.error(`❌ [Error Handler] ${statusCode} - ${message}`);
-  if (process.env.NODE_ENV !== "production") {
+  if (env.NODE_ENV !== "production") {
     console.error(`📍 Stack: ${err.stack}`);
   }
 
   res.status(statusCode).json({
     success: false,
     message,
-    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
+    ...(env.NODE_ENV === "development" && { stack: err.stack }),
   });
 };
 
-module.exports = errorHandler;
+
+export default errorHandler;

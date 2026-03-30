@@ -1,33 +1,17 @@
-const mongoose = require("mongoose");
+import mongoose from 'mongoose';
 
-const connectDB = async () => {
-  try {
-    console.log("🔄 [DB] Connecting to MongoDB Atlas...");
+import env from '../utils/env.js';
+import dns from 'dns';
 
-    const conn = await mongoose.connect(process.env.MONGO_URI, {
-      serverSelectionTimeoutMS: 5000,  // Fail fast if Atlas unreachable
-      socketTimeoutMS: 45000,
-    });
-
-    console.log(`✅ [DB] Connected: ${conn.connection.host}`);
-    console.log(`📦 [DB] Database: ${conn.connection.name}`);
-
-    // Connection event listeners
-    mongoose.connection.on("error", (err) => {
-      console.error(`❌ [DB] Connection error: ${err.message}`);
-    });
-
-    mongoose.connection.on("disconnected", () => {
-      console.warn(`⚠️  [DB] MongoDB disconnected`);
-    });
-
-    mongoose.connection.on("reconnected", () => {
-      console.log(`🔄 [DB] MongoDB reconnected`);
-    });
-  } catch (error) {
-    console.error(`❌ [DB] Initial connection failed: ${error.message}`);
-    process.exit(1);
-  }
+export const connectDB = async () => {
+    try {
+        dns.setServers(["1.1.1.1", "8.8.8.8"]);
+        const conn = await mongoose.connect(`${env.MONGODB_URI}/${env.DB_NAME}`);
+        console.log("\n MongoDB connected !! DB HOST: ",conn.connection.host);
+    }
+    catch(err){
+        console.error('Error connecting to MongoDB:', err);
+        process.exit(1);
+    }
 };
 
-module.exports = connectDB;

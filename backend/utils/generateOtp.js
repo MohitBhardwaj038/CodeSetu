@@ -1,4 +1,4 @@
-const crypto = require("crypto");
+import crypto from "crypto";
 
 /**
  * Generates a secure 6-digit numeric OTP
@@ -11,4 +11,4 @@ const generateOtp = () => {
   return otp;
 };
 
-module.exports = generateOtp;
+export default generateOtp;
