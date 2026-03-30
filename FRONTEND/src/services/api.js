@@ -76,3 +76,35 @@ export async function loginUser(email, password) {
 export async function getProfile() {
   return request("/user/profile", { method: "GET" });
 }
+
+// ─── Problems API ────────────────────────────────
+
+/**
+ * Fetch all available problems
+ */
+export async function getAllProblems() {
+  return request("/problems", { method: "GET" });
+}
+
+/**
+ * Fetch a single problem by its slug
+ * @param {string} slug 
+ */
+export async function getProblemBySlug(slug) {
+  return request(`/problems/${slug}`, { method: "GET" });
+}
+
+// ─── Submission API ──────────────────────────────
+
+/**
+ * Run code against test cases (Judge0)
+ * @param {string} problemId 
+ * @param {number} languageId 
+ * @param {string} code 
+ */
+export async function runCode(problemId, languageId, code) {
+  return request(`/problems/${problemId}/run-code`, {
+    method: "POST",
+    body: JSON.stringify({ languageId, code }),
+  });
+}
