@@ -8,7 +8,7 @@ import {
   ChevronRight, CheckCircle2, XCircle, CircleDot, Timer, Cpu, History,
 } from "lucide-react";
 
-import { getProblemBySlug, runCode, submitCode, getUserSubmissions } from "../../services/api";
+import { getLatestSubmission, getProblemBySlug, runCode, submitCode, getUserSubmissions } from "../../services/api";
 
 const LANGUAGES = {
   javascript: { id: 63, name: "JavaScript (Node.js)", monacoLang: "javascript" },
@@ -16,6 +16,15 @@ const LANGUAGES = {
   cpp: { id: 54, name: "C++", monacoLang: "cpp" },
   java: { id: 62, name: "Java", monacoLang: "java" },
 };
+
+const getStarterCodeForLanguage = (problemData, langKey) => {
+  const template = problemData?.starterCode?.find((s) => s.language === langKey);
+  return template?.code || "// Write your code here\n";
+};
+
+const findLanguageKeyById = (languageId) => (
+  Object.keys(LANGUAGES).find((key) => String(LANGUAGES[key].id) === String(languageId))
+);
 
 const getDifficultyStyle = (diff) => {
   switch (diff?.toLowerCase()) {
@@ -43,6 +52,7 @@ export default function CodeEditor() {
 
   const [language, setLanguage] = useState("javascript");
   const [code, setCode] = useState("");
+  const [latestSubmission, setLatestSubmission] = useState(null);
 
   // Terminal state
   const [output, setOutput] = useState(null);
@@ -70,8 +80,30 @@ export default function CodeEditor() {
         const res = await getProblemBySlug(slug, user?.id);
         const prob = res.data?.problem;
         setProblem(prob);
-        const defaultTemplate = prob?.starterCode?.find((s) => s.language === "javascript");
-        setCode(defaultTemplate?.code || "// Write your code here\n");
+        let initialLanguage = "javascript";
+        let initialCode = getStarterCodeForLanguage(prob, initialLanguage);
+
+        if (user?.id && prob?._id) {
+          try {
+            const latestRes = await getLatestSubmission(prob._id, user.id);
+            const latest = latestRes.data?.submission;
+            if (latest?.code) {
+              const langKey = findLanguageKeyById(latest.language);
+              if (langKey) {
+                initialLanguage = langKey;
+              }
+              initialCode = latest.code;
+              setLatestSubmission(latest);
+            } else {
+              setLatestSubmission(null);
+            }
+          } catch {
+            setLatestSubmission(null);
+          }
+        }
+
+        setLanguage(initialLanguage);
+        setCode(initialCode);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -103,6 +135,16 @@ export default function CodeEditor() {
   const handleLanguageChange = (e) => {
     const newLang = e.target.value;
     setLanguage(newLang);
+    const matchesLatestLanguage = latestSubmission && (
+      String(latestSubmission.language) === String(LANGUAGES[newLang]?.id) ||
+      String(latestSubmission.language) === String(newLang)
+    );
+
+    if (matchesLatestLanguage && latestSubmission.code) {
+      setCode(latestSubmission.code);
+      return;
+    }
+
     const template = problem?.starterCode?.find((s) => s.language === newLang);
     setCode(template?.code || "// Write your code here\n");
   };
@@ -136,6 +178,9 @@ export default function CodeEditor() {
       const langId = LANGUAGES[language].id;
       const res = await submitCode(problem._id, langId, code, user.id);
       setSubmitResult(res.data);
+      if (res.data?.submission) {
+        setLatestSubmission(res.data.submission);
+      }
       // Update problem state locally
       if (res.data?.userProblemState) {
         setProblem((prev) => ({ ...prev, userProblemState: res.data.userProblemState }));

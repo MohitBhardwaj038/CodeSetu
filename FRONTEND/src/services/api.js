@@ -143,3 +143,14 @@ export async function getUserSubmissions(problemId, userId) {
     method: "GET",
   });
 }
+
+/**
+ * Get latest submission for a user on a specific problem (includes code)
+ * @param {string} problemId
+ * @param {string} userId
+ */
+export async function getLatestSubmission(problemId, userId) {
+  return request(`/problems/${problemId}/submissions/${userId}/latest`, {
+    method: "GET",
+  });
+}

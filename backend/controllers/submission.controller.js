@@ -234,4 +234,20 @@ const getSubmissionsByUser = async (req, res, next) => {
   }
 };
 
-export { createSubmission, getSubmissionsByUser,runCode as run };
+const getLatestSubmissionByUserAndProblem = async (req, res, next) => {
+  try {
+    const { problemId, userId } = req.params;
+    const submission = await Submission.findOne({ userId, problemId })
+      .sort({ createdAt: -1 })
+      .select("code language status createdAt executionTimeMs memoryUsedKb");
+
+    res.status(200).json({
+      status: "success",
+      data: { submission },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export { createSubmission, getSubmissionsByUser, getLatestSubmissionByUserAndProblem, runCode as run };
