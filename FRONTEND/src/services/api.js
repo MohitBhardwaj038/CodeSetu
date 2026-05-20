@@ -154,3 +154,12 @@ export async function getLatestSubmission(problemId, userId) {
     method: "GET",
   });
 }
+
+/**
+ * Get today's daily challenge problem
+ * @param {string} [userId] - optional, for userProblemState
+ */
+export async function getDailyChallenge(userId) {
+  const qs = userId ? `?userId=${userId}` : "";
+  return request(`/problems/daily-challenge${qs}`, { method: "GET" });
+}

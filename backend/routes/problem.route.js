@@ -1,10 +1,11 @@
 import express from 'express';
-import { createProblem, deleteProblem, getAllProblems, getProblemBySlug, updateProblem, getAllTags, getAllCompanyTags } from '../controllers/problem.controller.js';
+import { createProblem, deleteProblem, getAllProblems, getProblemBySlug, updateProblem, getAllTags, getAllCompanyTags, getDailyChallenge } from '../controllers/problem.controller.js';
 const router = express.Router();
 
 // Public routes — tag lists for filter dropdowns (must come BEFORE :slug routes)
 router.route('/problems/tags').get(getAllTags);
 router.route('/problems/company-tags').get(getAllCompanyTags);
+router.route('/problems/daily-challenge').get(getDailyChallenge);
 
 // Public routes — problem listing and detail
 router.route('/problems').get(getAllProblems);

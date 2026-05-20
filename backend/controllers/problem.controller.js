@@ -322,4 +322,81 @@ const getAllCompanyTags = async (req, res, next) => {
     }
 };
 
-export {getAllProblems,getProblemBySlug,createProblem,updateProblem,deleteProblem,getAllTags,getAllCompanyTags};
+// ─────────────────────────────────────────────
+// GET /api/problems/daily-challenge
+// Returns a deterministic "problem of the day"
+// Uses date-based hashing — no cron or extra collection needed
+// ─────────────────────────────────────────────
+const getDailyChallenge = async (req, res, next) => {
+    try {
+        const { userId } = req.query;
+
+        if (userId && !mongoose.Types.ObjectId.isValid(userId)) {
+            return next(new ApiError("Invalid userId", 400));
+        }
+
+        // Get all problem IDs (lightweight query)
+        const allProblems = await Problem.find({})
+            .select('_id slug')
+            .sort({ order: 1, createdAt: 1 });
+
+        if (allProblems.length === 0) {
+            return next(new ApiError("No problems available", 404));
+        }
+
+        // Deterministic hash from today's date string
+        const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+        let hash = 0;
+        for (let i = 0; i < today.length; i++) {
+            hash = ((hash << 5) - hash + today.charCodeAt(i)) | 0;
+        }
+        const index = Math.abs(hash) % allProblems.length;
+        const chosenSlug = allProblems[index].slug;
+
+        // Fetch full problem data (reuse same logic as getProblemBySlug)
+        const problem = await Problem.findOne({ slug: chosenSlug })
+            .populate({
+                path: 'testCases',
+                match: { isHidden: false },
+                select: '-_id input expectedOutput explanation',
+                options: { limit: 3 },
+            });
+
+        if (!problem) {
+            return next(new ApiError("Daily challenge problem not found", 404));
+        }
+
+        if (!problem.examples || problem.examples.length === 0) {
+            problem.examples = (problem.testCases || []).slice(0, 3).map((tc) => ({
+                input: tc.input,
+                output: tc.expectedOutput,
+                explanation: tc.explanation || "",
+            }));
+        }
+
+        const problemData = problem.toObject();
+
+        if (userId) {
+            const userSubmissions = await Submission.find({
+                userId,
+                problemId: problem._id,
+            })
+            .select('status createdAt')
+            .sort({ createdAt: -1 });
+
+            problemData.userProblemState = getUserStateFromSubmissions(userSubmissions);
+        }
+
+        res.status(200).json({
+            status: "success",
+            data: {
+                problem: problemData,
+                date: today,
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export {getAllProblems,getProblemBySlug,createProblem,updateProblem,deleteProblem,getAllTags,getAllCompanyTags,getDailyChallenge};

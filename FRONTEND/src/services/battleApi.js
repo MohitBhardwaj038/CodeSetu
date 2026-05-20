@@ -59,6 +59,13 @@ export async function battleSubmitCode(code, problemId, languageId, userCode) {
   });
 }
 
+export async function battleRunCode(problemId, languageId, code) {
+  return request(`/problems/${problemId}/run-code`, {
+    method: "POST",
+    body: JSON.stringify({ languageId, code }),
+  });
+}
+
 export async function getBattleSubmissions(code, problemId) {
   return request(`/rooms/${code}/problems/${problemId}/submissions`, {
     method: "GET",

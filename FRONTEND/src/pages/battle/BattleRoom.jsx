@@ -4,11 +4,12 @@ import Editor from "@monaco-editor/react";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
 import {
   Swords, Clock, Users, Trophy, Send, CheckCircle2, XCircle,
-  AlertCircle, GripVertical, ChevronLeft, ChevronRight, Zap, Timer
+  AlertCircle, GripVertical, ChevronLeft, ChevronRight, Zap, Timer,
+  Play, Terminal, CheckCircle, Cpu,
 } from "lucide-react";
 import { useBattleSocket } from "../../hooks/useBattleSocket";
 import { getProblemBySlug } from "../../services/api";
-import { getRoom, joinRoom, startRoom, getLeaderboard, battleSubmitCode } from "../../services/battleApi";
+import { getRoom, joinRoom, startRoom, getLeaderboard, battleSubmitCode, battleRunCode } from "../../services/battleApi";
 
 const problemId = (p) => String(p?._id || p);
 
@@ -46,6 +47,9 @@ function formatTime(secs) {
   return `${m}:${s}`;
 }
 
+/* Compound key for per-problem-per-language code caching */
+const codeKey = (pid, lang) => `${pid}_${lang}`;
+
 export default function BattleRoom() {
   const { code } = useParams();
   const navigate = useNavigate();
@@ -67,6 +71,11 @@ export default function BattleRoom() {
   const [showFinalBoard, setShowFinalBoard] = useState(false);
   const [finalLeaderboard, setFinalLeaderboard] = useState([]);
   const [codeByProblem, setCodeByProblem] = useState({});
+
+  // Run / Terminal state
+  const [isRunning, setIsRunning] = useState(false);
+  const [runOutput, setRunOutput] = useState(null);
+  const [terminalTab, setTerminalTab] = useState("testcases"); // testcases | result
 
   const buildLB = useCallback((participants) => {
     const lb = [...participants]
@@ -148,9 +157,10 @@ export default function BattleRoom() {
     async (prob) => {
       if (!prob) return;
 
+      // Save current code with compound key
       const currentId = problemId(selectedProblem);
       if (currentId) {
-        setCodeByProblem((prev) => ({ ...prev, [currentId]: editorCode }));
+        setCodeByProblem((prev) => ({ ...prev, [codeKey(currentId, language)]: editorCode }));
       }
 
       let next =
@@ -175,9 +185,11 @@ export default function BattleRoom() {
       const nextId = problemId(next);
       setSelectedProblem(next);
       setSubmitResult(null);
+      setRunOutput(null);
 
-      const cached = codeByProblem[nextId];
-      if (cached) {
+      // Load cached code for this problem+language, or template
+      const cached = codeByProblem[codeKey(nextId, language)];
+      if (cached !== undefined) {
         setEditorCode(cached);
       } else {
         const tmpl = next.starterCode?.find((s) => s.language === language);
@@ -191,10 +203,19 @@ export default function BattleRoom() {
   useEffect(() => {
     if (!selectedProblem) return;
     const id = problemId(selectedProblem);
-    const tmpl = selectedProblem.starterCode?.find((s) => s.language === language);
-    const code = tmpl?.code || `// Write your ${language} solution here\n`;
-    setEditorCode(codeByProblem[id] ?? code);
-    setCodeByProblem((prev) => ({ ...prev, [id]: prev[id] ?? code }));
+    const key = codeKey(id, language);
+
+    // Check if we have cached code for this problem+language combo
+    const cached = codeByProblem[key];
+    if (cached !== undefined) {
+      setEditorCode(cached);
+    } else {
+      // Load template for the new language
+      const tmpl = selectedProblem.starterCode?.find((s) => s.language === language);
+      const templateCode = tmpl?.code || `// Write your ${language} solution here\n`;
+      setEditorCode(templateCode);
+      setCodeByProblem((prev) => ({ ...prev, [key]: templateCode }));
+    }
   }, [language]);
 
   // Socket handlers
@@ -273,10 +294,31 @@ export default function BattleRoom() {
     finally { setIsStarting(false); }
   };
 
+  // ── Run code (visible test cases only) ──
+  const handleRun = async () => {
+    if (!selectedProblem || !user) return;
+    setIsRunning(true);
+    setRunOutput(null);
+    setSubmitResult(null);
+    setTerminalTab("testcases");
+    try {
+      const langId = LANGUAGES[language].id;
+      const res = await battleRunCode(selectedProblem._id, langId, editorCode);
+      setRunOutput(res.results || []);
+    } catch (e) {
+      setRunOutput([{ error: e.message, status: "System Error" }]);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  // ── Submit code (all test cases) ──
   const handleSubmit = async () => {
     if (!selectedProblem || !user) return;
     setIsSubmitting(true);
     setSubmitResult(null);
+    setRunOutput(null);
+    setTerminalTab("result");
     try {
       const langId = LANGUAGES[language].id;
       const res = await battleSubmitCode(code, selectedProblem._id, langId, editorCode);
@@ -365,7 +407,7 @@ export default function BattleRoom() {
           <span className="text-white font-bold text-sm truncate max-w-[200px]">{room?.name}</span>
           <span className="text-[10px] text-slate-500 font-mono bg-surface-800 px-2 py-0.5 rounded border border-white/10">{code}</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {/* Timer */}
           {roomStatus === "active" && (
             <div className={`flex items-center gap-1.5 font-mono font-bold text-sm ${timerColor}`}>
@@ -387,13 +429,22 @@ export default function BattleRoom() {
           {roomStatus === "finished" && (
             <span className="text-xs text-rose-400 font-bold px-3 py-1.5 bg-rose-500/10 rounded-lg border border-rose-500/20">Battle Ended</span>
           )}
-          {/* Submit button */}
+          {/* Run + Submit buttons */}
           {roomStatus === "active" && (
-            <button onClick={handleSubmit} disabled={isSubmitting || !selectedProblem}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-lg text-xs font-bold transition-all active:scale-95 disabled:opacity-40">
-              {isSubmitting ? <Spinner /> : <Send className="w-3.5 h-3.5" />}
-              Submit
-            </button>
+            <>
+              <button onClick={handleRun} disabled={isRunning || isSubmitting || !selectedProblem}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-surface-800 hover:bg-surface-700 text-slate-300 hover:text-white border border-white/10 rounded-lg text-xs font-semibold transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                id="battle-run-btn">
+                {isRunning ? <Spinner /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
+                Run
+              </button>
+              <button onClick={handleSubmit} disabled={isSubmitting || isRunning || !selectedProblem}
+                className="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 text-white rounded-lg text-xs font-bold shadow-[0_0_12px_rgba(99,102,241,0.25)] transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                id="battle-submit-btn">
+                {isSubmitting ? <Spinner /> : <Send className="w-3.5 h-3.5" />}
+                Submit
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -489,14 +540,16 @@ export default function BattleRoom() {
             <GripVertical className="w-3 h-3 text-slate-600 group-hover:text-white" />
           </PanelResizeHandle>
 
-          {/* CENTER: Editor + Result */}
+          {/* CENTER: Editor + Terminal */}
           <Panel defaultSize={40} minSize={25}>
             <PanelGroup orientation="vertical">
-              <Panel defaultSize={70} minSize={30} className="bg-surface-900 flex flex-col">
+              {/* Editor */}
+              <Panel defaultSize={60} minSize={25} className="bg-surface-900 flex flex-col">
                 <div className="flex items-center justify-between px-3 h-10 border-b border-white/8 bg-surface-800/60 shrink-0">
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Code</span>
                   <select value={language} onChange={e => setLanguage(e.target.value)}
-                    className="bg-surface-950 border border-white/10 text-xs text-slate-300 rounded-md px-2.5 py-1 outline-none focus:border-primary-500 cursor-pointer">
+                    className="bg-surface-950 border border-white/10 text-xs text-slate-300 rounded-md px-2.5 py-1 outline-none focus:border-primary-500 cursor-pointer"
+                    id="battle-language-select">
                     {Object.entries(LANGUAGES).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
                   </select>
                 </div>
@@ -507,12 +560,12 @@ export default function BattleRoom() {
                     theme="vs-dark"
                     value={editorCode}
                     onChange={(val) => {
-                      const code = val || "";
-                      setEditorCode(code);
+                      const newCode = val || "";
+                      setEditorCode(newCode);
                       if (selectedProblem) {
                         setCodeByProblem((prev) => ({
                           ...prev,
-                          [problemId(selectedProblem)]: code,
+                          [codeKey(problemId(selectedProblem), language)]: newCode,
                         }));
                       }
                     }}
@@ -526,49 +579,152 @@ export default function BattleRoom() {
                   />
                 </div>
               </Panel>
+
               <PanelResizeHandle className="h-1.5 bg-surface-950 hover:bg-primary-500/50 transition-colors cursor-row-resize flex items-center justify-center group">
                 <GripVertical className="w-3 h-3 text-slate-600 group-hover:text-white rotate-90" />
               </PanelResizeHandle>
-              {/* Result panel */}
-              <Panel defaultSize={30} minSize={10} className="bg-[#0d0d0d] font-mono text-sm overflow-y-auto p-3">
-                {!submitResult && !isSubmitting && (
-                  <div className="text-slate-600 text-xs flex items-center gap-2 py-4">
-                    <Send className="w-4 h-4" /> Submit your code to see results...
-                  </div>
-                )}
-                {isSubmitting && (
-                  <div className="flex items-center gap-2 text-primary-400 py-4">
-                    <Spinner /><span className="text-xs">Running against all test cases...</span>
-                  </div>
-                )}
-                {submitResult && (
-                  <div className="animate-fade-in">
-                    <div className={`rounded-xl p-4 border mb-3 ${submitResult.status === "Accepted" ? "bg-emerald-500/8 border-emerald-500/20" : "bg-rose-500/8 border-rose-500/20"}`}>
-                      <div className={`flex items-center gap-2 font-bold text-base ${submitResult.status === "Accepted" ? "text-emerald-400" : "text-rose-400"}`}>
-                        {submitResult.status === "Accepted" ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-                        {submitResult.status}
-                      </div>
-                      {submitResult.data?.executionTimeMs > 0 && (
-                        <p className="text-xs text-slate-500 mt-1">Runtime: {submitResult.data.executionTimeMs.toFixed(1)} ms</p>
+
+              {/* Terminal Panel with Tabs */}
+              <Panel defaultSize={40} minSize={12} className="bg-[#0d0d0d] font-mono text-sm flex flex-col">
+                {/* Terminal Tabs */}
+                <div className="flex items-center justify-between h-9 border-b border-white/8 bg-surface-800/80 px-2 shrink-0">
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      onClick={() => setTerminalTab("testcases")}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                        terminalTab === "testcases" ? "text-white bg-white/8" : "text-slate-500 hover:text-slate-300"
+                      }`}
+                    >
+                      <Terminal className="w-3 h-3" /> Test Results
+                    </button>
+                    <button
+                      onClick={() => setTerminalTab("result")}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                        terminalTab === "result"
+                          ? submitResult?.status === "Accepted"
+                            ? "text-emerald-400 bg-emerald-500/10"
+                            : submitResult?.status || submitResult?.error
+                              ? "text-rose-400 bg-rose-500/10"
+                              : "text-white bg-white/8"
+                          : "text-slate-500 hover:text-slate-300"
+                      }`}
+                    >
+                      <Send className="w-3 h-3" /> Submission
+                      {submitResult?.status === "Accepted" && (
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                       )}
-                    </div>
-                    {submitResult.data?.failedTestCase && (
-                      <div className="rounded-lg border border-rose-500/20 overflow-hidden">
-                        <div className="px-3 py-1.5 text-[11px] font-bold text-rose-400 bg-rose-500/8 border-b border-rose-500/15">Failed Test Case</div>
-                        <div className="p-3 space-y-2 text-[11px]">
-                          <div><div className="text-slate-600 mb-0.5">Input</div><div className="bg-surface-900 rounded p-1.5 text-slate-300 whitespace-pre overflow-x-auto">{submitResult.data.failedTestCase.input}</div></div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div><div className="text-slate-600 mb-0.5">Expected</div><div className="bg-surface-900 rounded p-1.5 text-emerald-400 whitespace-pre overflow-x-auto">{submitResult.data.failedTestCase.expectedOutput}</div></div>
-                            <div><div className="text-slate-600 mb-0.5">Got</div><div className="bg-surface-900 rounded p-1.5 text-rose-400 whitespace-pre overflow-x-auto">{submitResult.data.failedTestCase.actualOutput || "No output"}</div></div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {submitResult.error && (
-                      <div className="text-rose-400 text-xs mt-2">{submitResult.error}</div>
-                    )}
+                    </button>
                   </div>
-                )}
+                </div>
+
+                <div className="p-3 overflow-y-auto flex-1 scrollbar-thin text-slate-300">
+                  {/* ── Test Results Tab ── */}
+                  {terminalTab === "testcases" && (
+                    <>
+                      {!runOutput && !isRunning && (
+                        <div className="text-slate-600 text-xs flex items-center gap-2 py-4">
+                          <Play className="w-4 h-4" /> Press &quot;Run&quot; to test your code against sample test cases...
+                        </div>
+                      )}
+                      {isRunning && (
+                        <div className="flex items-center gap-2.5 text-primary-400 py-4">
+                          <Spinner />
+                          <span className="text-xs">Compiling & Executing...</span>
+                        </div>
+                      )}
+                      {runOutput &&
+                        runOutput.map((tc, idx) => (
+                          <div key={idx} className="mb-3 last:mb-0 border border-white/5 rounded-lg overflow-hidden bg-black/30">
+                            <div
+                              className={`px-3 py-1.5 text-[11px] font-bold flex items-center gap-1.5 ${
+                                tc.status === "Accepted"
+                                  ? "bg-emerald-500/8 text-emerald-400 border-b border-emerald-500/15"
+                                  : "bg-rose-500/8 text-rose-400 border-b border-rose-500/15"
+                              }`}
+                            >
+                              {tc.status === "Accepted" ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                              Test Case {idx + 1}: {tc.status}
+                              {tc.time && <span className="ml-auto text-[10px] text-slate-500 font-normal">{tc.time.toFixed(1)} ms</span>}
+                            </div>
+                            {tc.error ? (
+                              <div className="p-2.5 text-rose-400 text-xs break-words">{tc.error}</div>
+                            ) : (
+                              <div className="p-3 grid grid-cols-1 md:grid-cols-3 gap-2.5 text-[11px]">
+                                <div>
+                                  <div className="text-slate-600 mb-0.5 text-[10px]">Input</div>
+                                  <div className="bg-surface-900 rounded p-1.5 text-slate-300 overflow-x-auto whitespace-pre font-mono">{tc.input}</div>
+                                </div>
+                                <div>
+                                  <div className="text-slate-600 mb-0.5 text-[10px]">Expected</div>
+                                  <div className="bg-surface-900 rounded p-1.5 text-emerald-400 overflow-x-auto whitespace-pre font-mono">{tc.expectedOutput}</div>
+                                </div>
+                                <div>
+                                  <div className="text-slate-600 mb-0.5 text-[10px]">Output</div>
+                                  <div className="bg-surface-900 rounded p-1.5 text-white overflow-x-auto whitespace-pre font-mono">{tc.actualOutput || "No Output"}</div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                    </>
+                  )}
+
+                  {/* ── Submission Result Tab ── */}
+                  {terminalTab === "result" && (
+                    <>
+                      {!submitResult && !isSubmitting && (
+                        <div className="text-slate-600 text-xs flex items-center gap-2 py-4">
+                          <Send className="w-4 h-4" /> Press &quot;Submit&quot; to grade your solution against all test cases...
+                        </div>
+                      )}
+                      {isSubmitting && (
+                        <div className="flex items-center gap-2.5 text-primary-400 py-4">
+                          <Spinner />
+                          <span className="text-xs">Submitting & Grading against all test cases...</span>
+                        </div>
+                      )}
+                      {submitResult && (
+                        <div className="animate-fade-in">
+                          <div className={`rounded-xl p-4 border mb-3 ${submitResult.status === "Accepted" ? "bg-emerald-500/8 border-emerald-500/20" : "bg-rose-500/8 border-rose-500/20"}`}>
+                            <div className={`flex items-center gap-2 font-bold text-base ${submitResult.status === "Accepted" ? "text-emerald-400" : "text-rose-400"}`}>
+                              {submitResult.status === "Accepted" ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+                              {submitResult.status}
+                            </div>
+                            <div className="flex items-center gap-5 text-xs text-slate-400 mt-1">
+                              {submitResult.data?.executionTimeMs > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <Timer className="w-3.5 h-3.5" />
+                                  Runtime: <span className="text-white font-medium">{submitResult.data.executionTimeMs.toFixed(1)} ms</span>
+                                </span>
+                              )}
+                              {submitResult.data?.memoryUsedKb > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <Cpu className="w-3.5 h-3.5" />
+                                  Memory: <span className="text-white font-medium">{(submitResult.data.memoryUsedKb / 1024).toFixed(2)} MB</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {submitResult.data?.failedTestCase && (
+                            <div className="rounded-lg border border-rose-500/20 overflow-hidden">
+                              <div className="px-3 py-1.5 text-[11px] font-bold text-rose-400 bg-rose-500/8 border-b border-rose-500/15">Failed Test Case</div>
+                              <div className="p-3 space-y-2 text-[11px]">
+                                <div><div className="text-slate-600 mb-0.5">Input</div><div className="bg-surface-900 rounded p-1.5 text-slate-300 whitespace-pre overflow-x-auto">{submitResult.data.failedTestCase.input}</div></div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div><div className="text-slate-600 mb-0.5">Expected</div><div className="bg-surface-900 rounded p-1.5 text-emerald-400 whitespace-pre overflow-x-auto">{submitResult.data.failedTestCase.expectedOutput}</div></div>
+                                  <div><div className="text-slate-600 mb-0.5">Got</div><div className="bg-surface-900 rounded p-1.5 text-rose-400 whitespace-pre overflow-x-auto">{submitResult.data.failedTestCase.actualOutput || "No output"}</div></div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          {submitResult.error && (
+                            <div className="text-rose-400 text-xs mt-2">{submitResult.error}</div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </Panel>
             </PanelGroup>
           </Panel>
