@@ -1,11 +1,17 @@
 import env from "../utils/env.js";
+import ApiError from "../utils/apiError.js";
 /**
  * Global error handler middleware
  * Must be the LAST middleware registered in server.js
  */
 const errorHandler = (err, req, res, next) => {
-  let statusCode = err.statusCode || 500;
+  let statusCode = err.statusCode || err.status || 500;
   let message = err.message || "Internal Server Error";
+
+  if (err instanceof ApiError) {
+    statusCode = err.statusCode || statusCode;
+    message = err.message;
+  }
 
   // Mongoose: bad ObjectId
   if (err.name === "CastError") {

@@ -875,7 +875,7 @@ const problemsData = [
 
 const seedDatabase = async () => {
   try {
-    const conn = await mongoose.connect(`${env.MONGODB_URI}/${env.DB_NAME}`);
+    const conn = await mongoose.connect(env.MONGODB_URI);
     console.log("\n✅ MongoDB connected !! DB HOST:", conn.connection.host);
 
     let created = 0;

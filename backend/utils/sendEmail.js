@@ -31,7 +31,7 @@ const sendOtpEmail = async (to, otp, purpose) => {
     purpose === "register" ? "complete your registration" : "log in to your account";
 
   const mailOptions = {
-    from: `"Auth App" <${env.GMAIL_USER}>`,
+    from: `"CodeSetu" <${env.GMAIL_USER}>`,
     to,
     subject,
     html: `

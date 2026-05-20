@@ -1,0 +1,13 @@
+# Local MongoDB for development (requires Docker Desktop running)
+# Usage: docker compose -f docker-compose.mongo.yml up -d
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    restart: unless-stopped
+    volumes:
+      - codesetu-mongo:/data/db
+
+volumes:
+  codesetu-mongo:

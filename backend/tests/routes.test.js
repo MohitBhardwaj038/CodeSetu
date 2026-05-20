@@ -118,10 +118,16 @@ jest.unstable_mockModule('../controllers/testCase.controller.js', () => ({
   deleteTestCase: (req, res, next) => mockDeleteTestCase(req, res, next),
 }));
 
+const mockGetLatestSubmission = jest.fn((req, res) =>
+  res.status(200).json({ status: 'success', data: { submission: null } })
+);
+
 jest.unstable_mockModule('../controllers/submission.controller.js', () => ({
   createSubmission: (req, res, next) => mockCreateSubmission(req, res, next),
   run: (req, res, next) => mockRunCode(req, res, next),
   getSubmissionsByUser: (req, res, next) => mockGetSubmissionsByUser(req, res, next),
+  getLatestSubmissionByUserAndProblem: (req, res, next) =>
+    mockGetLatestSubmission(req, res, next),
 }));
 
 jest.unstable_mockModule('../middleware/authMiddleware.js', () => {

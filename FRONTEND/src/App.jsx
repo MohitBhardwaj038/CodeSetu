@@ -4,6 +4,8 @@ import Login from "./pages/login/Login";
 import Register from "./pages/register/Register";
 import Problems from "./pages/problems/Problems";
 import CodeEditor from "./pages/editor/CodeEditor";
+import BattleLobby from "./pages/battle/BattleLobby";
+import BattleRoom from "./pages/battle/BattleRoom";
 
 function App() {
   return (
@@ -14,11 +16,11 @@ function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/problems" element={<Problems />} />
         <Route path="/problems/:slug" element={<CodeEditor />} />
+        <Route path="/battle" element={<BattleLobby />} />
+        <Route path="/battle/:code" element={<BattleRoom />} />
       </Routes>
     </BrowserRouter>
   );
 }
 
-export default App;
-
-// changes from st1;
+export default App;

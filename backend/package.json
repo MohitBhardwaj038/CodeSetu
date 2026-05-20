@@ -7,8 +7,10 @@
     "npm": ">=9.0.0"
   },
   "scripts": {
-    "start": "cross-env NODE_ENV=production node server.js",
+    "start": "cross-env NODE_ENV=production node index.js",
     "dev": "nodemon index.js",
+    "seed": "node seed.js",
+    "check:judge0": "node scripts/check-judge0.mjs",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand"
   },
   "keywords": [
@@ -37,7 +39,9 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.23.0",
     "morgan": "^1.10.1",
-    "nodemailer": "^8.0.2"
+    "nanoid": "^5.1.11",
+    "nodemailer": "^8.0.2",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "jest": "^30.3.0",

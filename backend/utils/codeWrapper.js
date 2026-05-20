@@ -1,10 +1,12 @@
 const JS_LANGUAGE_IDS = new Set([63]);
 const JAVA_LANGUAGE_IDS = new Set([62, 91]);
 const CPP_LANGUAGE_IDS = new Set([52, 53, 54, 76]);
+const PYTHON_LANGUAGE_IDS = new Set([71]);
 
 const isJavaScript = (languageId) => JS_LANGUAGE_IDS.has(languageId);
 const isJava = (languageId) => JAVA_LANGUAGE_IDS.has(languageId);
 const isCpp = (languageId) => CPP_LANGUAGE_IDS.has(languageId);
+const isPython = (languageId) => PYTHON_LANGUAGE_IDS.has(languageId);
 
 function splitTopLevel(input) {
   const parts = [];
@@ -153,6 +155,11 @@ function getFunctionName(code) {
     code.match(/function\s+(\w+)\s*\(/) ||
     code.match(/var\s+(\w+)\s*=\s*function/) ||
     code.match(/const\s+(\w+)\s*=\s*\(/);
+  return match ? match[1] : null;
+}
+
+function getPythonFunctionName(code) {
+  const match = code.match(/def\s+(\w+)\s*\(/);
   return match ? match[1] : null;
 }
 
@@ -558,9 +565,46 @@ int main() {
   };
 };
 
+const generatePythonWrapper = (code, input) => {
+  const functionName = getPythonFunctionName(code);
+  if (!functionName) {
+    return { sourceCode: code, usesStdin: true };
+  }
+
+  const assignments = parseInputAssignments(input);
+  if (assignments.length === 0) {
+    return { sourceCode: code, usesStdin: true };
+  }
+
+  const declarations = assignments
+    .map(({ name, value }) => `${name} = ${value}`)
+    .join("\n");
+  const argList = assignments.map(({ name }) => name).join(", ");
+
+  const wrappedCode = `
+${code}
+
+${declarations}
+
+import json
+_result = ${functionName}(${argList})
+if isinstance(_result, bool):
+    print("true" if _result else "false")
+elif isinstance(_result, (list, dict)):
+    print(json.dumps(_result, separators=(",", ":")))
+else:
+    print(_result)
+`;
+
+  return { sourceCode: wrappedCode.trim(), usesStdin: false };
+};
+
 const buildSubmissionCode = (code, input, languageId) => {
   if (isJavaScript(languageId)) {
     return { sourceCode: generateJavaScriptWrapper(code, input), usesStdin: false };
+  }
+  if (isPython(languageId)) {
+    return generatePythonWrapper(code, input);
   }
   if (isJava(languageId)) {
     return generateJavaWrapper(code, input);
