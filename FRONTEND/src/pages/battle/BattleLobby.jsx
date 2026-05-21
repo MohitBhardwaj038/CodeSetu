@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import {
-  Shield, Globe, Lock, Plus, Users, Clock, Zap, ChevronRight,
+  Shield, Globe, Lock, Plus, Users, Clock, Zap, ChevronRight, ChevronLeft,
   RefreshCw, Hash, ArrowRight, Trophy, Swords
 } from "lucide-react";
 import { createRoom, joinRoom, listPublicRooms } from "../../services/battleApi";
@@ -111,6 +111,15 @@ export default function BattleLobby() {
       {/* Header */}
       <div className="border-b border-white/8 bg-surface-900/80 backdrop-blur-xl px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
+          <Link
+            to="/problems"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-300 hover:text-white bg-surface-800/90 hover:bg-surface-700 border border-white/10 rounded-lg transition-all active:scale-95"
+            id="battle-back-btn"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            <span className="hidden sm:inline">Back to Problems</span>
+          </Link>
+          <div className="h-5 w-px bg-white/10" />
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-glow">
             <Swords className="w-5 h-5 text-white" />
           </div>

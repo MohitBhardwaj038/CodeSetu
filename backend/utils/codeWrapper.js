@@ -93,7 +93,7 @@ function stripQuotes(value) {
 }
 
 function escapeStringLiteral(value) {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function inferScalarType(value) {
@@ -150,23 +150,34 @@ function inferValueType(value) {
   return { kind: "scalar", scalarKind: inferScalarType(trimmed) };
 }
 
+// Strip block comments (/* ... */) and line comments (// ...) and Python (#)
+function stripComments(code) {
+  return code
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "")
+    .replace(/#.*$/gm, "");
+}
+
 function getFunctionName(code) {
+  const cleaned = stripComments(code);
   const match =
-    code.match(/function\s+(\w+)\s*\(/) ||
-    code.match(/var\s+(\w+)\s*=\s*function/) ||
-    code.match(/const\s+(\w+)\s*=\s*\(/);
+    cleaned.match(/function\s+(\w+)\s*\(/) ||
+    cleaned.match(/var\s+(\w+)\s*=\s*function/) ||
+    cleaned.match(/const\s+(\w+)\s*=\s*\(/);
   return match ? match[1] : null;
 }
 
 function getPythonFunctionName(code) {
-  const match = code.match(/def\s+(\w+)\s*\(/);
+  const cleaned = stripComments(code);
+  const match = cleaned.match(/def\s+(\w+)\s*\(/);
   return match ? match[1] : null;
 }
 
 function getJavaMethodName(code) {
+  const cleaned = stripComments(code);
   const regex = /(?:public|private|protected)?\s*(?:static\s*)?[\w<>\[\]]+\s+(\w+)\s*\([^;{]*\)\s*\{/g;
   let match;
-  while ((match = regex.exec(code)) !== null) {
+  while ((match = regex.exec(cleaned)) !== null) {
     if (match[1] !== "main") {
       return match[1];
     }
@@ -175,9 +186,10 @@ function getJavaMethodName(code) {
 }
 
 function getCppFunctionName(code) {
+  const cleaned = stripComments(code);
   const regex = /(?:^|\s)[\w:<>&*\[\]]+\s+(\w+)\s*\([^;{]*\)\s*\{/g;
   let match;
-  while ((match = regex.exec(code)) !== null) {
+  while ((match = regex.exec(cleaned)) !== null) {
     if (match[1] !== "main") {
       return match[1];
     }
@@ -196,13 +208,101 @@ function indentLines(text, indent) {
     .join("\n");
 }
 
-function buildJavaDeclarations(assignments) {
+// ─────────────────────────────────────────────────────────────
+// ListNode detection: checks if user code uses ListNode
+// (ignoring comments where the definition is shown)
+// ─────────────────────────────────────────────────────────────
+function codeUsesListNode(code) {
+  // Strip block comments (/* ... */) and line comments (// ...)
+  const stripped = code
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "")
+    .replace(/#.*$/gm, "");
+  return /\bListNode\b/.test(stripped);
+}
+
+// Determine which parameter names should be treated as ListNode
+// by parsing the method signature from user code.
+function getJavaListNodeParams(code) {
+  // Match parameters like: ListNode list1, ListNode list2
+  const cleaned = stripComments(code);
+  const methodMatch = cleaned.match(
+    /(?:public|private|protected)\s+[\w<>\[\]*]+\s+\w+\s*\(([^)]*)\)/
+  );
+  if (!methodMatch) return new Set();
+  const params = methodMatch[1];
+  const listNodeParams = new Set();
+  const paramRegex = /ListNode\s+(\w+)/g;
+  let m;
+  while ((m = paramRegex.exec(params)) !== null) {
+    listNodeParams.add(m[1]);
+  }
+  return listNodeParams;
+}
+
+function getCppListNodeParams(code) {
+  const cleaned = stripComments(code);
+  const methodMatch = cleaned.match(
+    /[\w<>&*\[\]]+\s+\w+\s*\(([^)]*)\)\s*\{/
+  );
+  if (!methodMatch) return new Set();
+  const params = methodMatch[1];
+  const listNodeParams = new Set();
+  const paramRegex = /ListNode\s*\*\s*(\w+)/g;
+  let m;
+  while ((m = paramRegex.exec(params)) !== null) {
+    listNodeParams.add(m[1]);
+  }
+  return listNodeParams;
+}
+
+function getJsListNodeParams(code) {
+  // JS uses JSDoc: @param {ListNode} list1
+  const listNodeParams = new Set();
+  const paramRegex = /@param\s+\{ListNode\}\s+(\w+)/g;
+  let m;
+  while ((m = paramRegex.exec(code)) !== null) {
+    listNodeParams.add(m[1]);
+  }
+  return listNodeParams;
+}
+
+function getPythonListNodeParams(code) {
+  // Python uses type hints: list1: Optional[ListNode]  or  list1: ListNode
+  const cleaned = stripComments(code);
+  const methodMatch = cleaned.match(/def\s+\w+\s*\(([^)]*)\)/);
+  if (!methodMatch) return new Set();
+  const params = methodMatch[1];
+  const listNodeParams = new Set();
+  const paramRegex = /(\w+)\s*:\s*(?:Optional\[)?ListNode\]?/g;
+  let m;
+  while ((m = paramRegex.exec(params)) !== null) {
+    if (m[1] !== "self") {
+      listNodeParams.add(m[1]);
+    }
+  }
+  return listNodeParams;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Java declarations – now with ListNode support
+// ─────────────────────────────────────────────────────────────
+function buildJavaDeclarations(assignments, listNodeParams) {
   const declarations = [];
   const argNames = [];
 
   assignments.forEach(({ name, value }) => {
     const typeInfo = inferValueType(value);
     argNames.push(name);
+
+    // If this parameter is a ListNode, build it from the array
+    if (listNodeParams && listNodeParams.has(name) && typeInfo.kind === "array") {
+      const elementValues = typeInfo.elements.map((entry) => entry.trim());
+      declarations.push(
+        `ListNode ${name} = buildList(new int[]{${elementValues.join(",")}});`
+      );
+      return;
+    }
 
     if (typeInfo.kind === "array") {
       const elementKind = typeInfo.elementKind;
@@ -219,10 +319,10 @@ function buildJavaDeclarations(assignments) {
         elementKind === "double"
           ? "double"
           : elementKind === "boolean"
-          ? "boolean"
-          : elementKind === "string"
-          ? "String"
-          : "int";
+            ? "boolean"
+            : elementKind === "string"
+              ? "String"
+              : "int";
       declarations.push(
         `${javaType}[] ${name} = new ${javaType}[]{${elementValues.join(",")}};`
       );
@@ -249,13 +349,25 @@ function buildJavaDeclarations(assignments) {
   };
 }
 
-function buildCppDeclarations(assignments) {
+// ─────────────────────────────────────────────────────────────
+// C++ declarations – now with ListNode support
+// ─────────────────────────────────────────────────────────────
+function buildCppDeclarations(assignments, listNodeParams) {
   const declarations = [];
   const argNames = [];
 
   assignments.forEach(({ name, value }) => {
     const typeInfo = inferValueType(value);
     argNames.push(name);
+
+    // If this parameter is a ListNode*, build it from the array
+    if (listNodeParams && listNodeParams.has(name) && typeInfo.kind === "array") {
+      const elementValues = typeInfo.elements.map((entry) => entry.trim());
+      declarations.push(
+        `ListNode* ${name} = buildList({${elementValues.join(",")}});`
+      );
+      return;
+    }
 
     if (typeInfo.kind === "array") {
       const elementKind = typeInfo.elementKind;
@@ -272,10 +384,10 @@ function buildCppDeclarations(assignments) {
         elementKind === "double"
           ? "double"
           : elementKind === "boolean"
-          ? "bool"
-          : elementKind === "string"
-          ? "string"
-          : "int";
+            ? "bool"
+            : elementKind === "string"
+              ? "string"
+              : "int";
       declarations.push(
         `vector<${cppType}> ${name} = {${elementValues.join(",")}};`
       );
@@ -302,6 +414,134 @@ function buildCppDeclarations(assignments) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────
+// Language-specific ListNode definitions
+// ─────────────────────────────────────────────────────────────
+const JAVA_LISTNODE_CLASS = `
+class ListNode {
+  int val;
+  ListNode next;
+  ListNode() {}
+  ListNode(int val) { this.val = val; }
+  ListNode(int val, ListNode next) { this.val = val; this.next = next; }
+}`;
+
+const JAVA_LISTNODE_HELPERS = `
+  private static ListNode buildList(int[] values) {
+    ListNode dummy = new ListNode(0);
+    ListNode curr = dummy;
+    for (int v : values) {
+      curr.next = new ListNode(v);
+      curr = curr.next;
+    }
+    return dummy.next;
+  }
+
+  private static String toJson(ListNode head) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("[");
+    ListNode curr = head;
+    boolean first = true;
+    while (curr != null) {
+      if (!first) {
+        sb.append(",");
+      }
+      sb.append(curr.val);
+      first = false;
+      curr = curr.next;
+    }
+    sb.append("]");
+    return sb.toString();
+  }`;
+
+const CPP_LISTNODE_STRUCT = `
+struct ListNode {
+  int val;
+  ListNode *next;
+  ListNode() : val(0), next(nullptr) {}
+  ListNode(int x) : val(x), next(nullptr) {}
+  ListNode(int x, ListNode *next) : val(x), next(next) {}
+};`;
+
+const CPP_LISTNODE_HELPERS = `
+ListNode* buildList(vector<int> values) {
+  ListNode dummy(0);
+  ListNode* curr = &dummy;
+  for (int v : values) {
+    curr->next = new ListNode(v);
+    curr = curr->next;
+  }
+  return dummy.next;
+}
+
+void printResult(ListNode* head) {
+  cout << "[";
+  ListNode* curr = head;
+  bool first = true;
+  while (curr != nullptr) {
+    if (!first) {
+      cout << ",";
+    }
+    cout << curr->val;
+    first = false;
+    curr = curr->next;
+  }
+  cout << "]";
+}`;
+
+const JS_LISTNODE_HELPERS = `
+function ListNode(val, next) {
+  this.val = (val === undefined ? 0 : val);
+  this.next = (next === undefined ? null : next);
+}
+
+function buildList(arr) {
+  let dummy = new ListNode(0);
+  let curr = dummy;
+  for (let i = 0; i < arr.length; i++) {
+    curr.next = new ListNode(arr[i]);
+    curr = curr.next;
+  }
+  return dummy.next;
+}
+
+function listToArray(head) {
+  const result = [];
+  let curr = head;
+  while (curr !== null) {
+    result.push(curr.val);
+    curr = curr.next;
+  }
+  return result;
+}`;
+
+const PYTHON_LISTNODE_HELPERS = `
+class ListNode:
+    def __init__(self, val=0, next=None):
+        self.val = val
+        self.next = next
+
+from typing import Optional
+
+def build_list(arr):
+    dummy = ListNode(0)
+    curr = dummy
+    for v in arr:
+        curr.next = ListNode(v)
+        curr = curr.next
+    return dummy.next
+
+def list_to_array(head):
+    result = []
+    curr = head
+    while curr is not None:
+        result.append(curr.val)
+        curr = curr.next
+    return result`;
+
+// ─────────────────────────────────────────────────────────────
+// JavaScript wrapper
+// ─────────────────────────────────────────────────────────────
 const generateJavaScriptWrapper = (code, input) => {
   const functionName = getFunctionName(code);
   if (!functionName) {
@@ -315,24 +555,54 @@ const generateJavaScriptWrapper = (code, input) => {
     return code;
   }
 
+  const usesListNode = codeUsesListNode(code);
+  const listNodeParams = usesListNode ? getJsListNodeParams(code) : new Set();
+
   const declarations = assignments
-    .map(({ name, value }) => `const ${name} = ${value};`)
+    .map(({ name, value }) => {
+      if (listNodeParams.has(name)) {
+        return `const ${name} = buildList(${value});`;
+      }
+      return `const ${name} = ${value};`;
+    })
     .join("\n");
   const argList = assignments.map(({ name }) => name).join(", ");
 
+  // Strip the ListNode comment definition from user code to avoid redeclaration
+  const cleanCode = usesListNode
+    ? code.replace(/\/\*\*[\s\S]*?\*\/\s*\n?/g, (match) =>
+      /ListNode/.test(match) ? "" : match
+    )
+    : code;
+
+  const resultConversion = usesListNode
+    ? `
+const result = ${functionName}(${argList});
+if (result instanceof ListNode || result === null) {
+  console.log(JSON.stringify(listToArray(result)));
+} else {
+  console.log(JSON.stringify(result));
+}`
+    : `
+const result = ${functionName}(${argList});
+console.log(JSON.stringify(result));`;
+
   const wrappedCode = `
-${code}
+${usesListNode ? JS_LISTNODE_HELPERS : ""}
+
+${cleanCode}
 
 ${declarations}
-
-const result = ${functionName}(${argList});
-console.log(JSON.stringify(result));
+${resultConversion}
 `;
 
   console.log("Wrapped Code:\n", wrappedCode);
   return wrappedCode;
 };
 
+// ─────────────────────────────────────────────────────────────
+// Java wrapper
+// ─────────────────────────────────────────────────────────────
 const generateJavaWrapper = (code, input) => {
   if (/\bmain\s*\(/.test(code)) {
     return { sourceCode: code, usesStdin: true };
@@ -348,13 +618,17 @@ const generateJavaWrapper = (code, input) => {
     return { sourceCode: code, usesStdin: true };
   }
 
+  const usesListNode = codeUsesListNode(code);
+  const listNodeParams = usesListNode ? getJavaListNodeParams(code) : new Set();
+  const returnsListNode = usesListNode && new RegExp(`\\bListNode\\s+${methodName}\\b`).test(code);
+
   const sanitizedCode = sanitizeJavaCode(code);
   const hasSolutionClass = /class\s+Solution\b/.test(sanitizedCode);
   const solutionCode = hasSolutionClass
     ? sanitizedCode
     : `class Solution {\n${indentLines(sanitizedCode, "  ")}\n}`;
 
-  const { declarations, argList } = buildJavaDeclarations(assignments);
+  const { declarations, argList } = buildJavaDeclarations(assignments, listNodeParams);
   const mainCode = `
 class Main {
   private static String escapeJson(String value) {
@@ -428,7 +702,7 @@ class Main {
       if (i > 0) {
         sb.append(",");
       }
-      sb.append("\\\"").append(escapeJson(arr[i])).append("\\\"");
+      sb.append((char) 34).append(escapeJson(arr[i])).append((char) 34);
     }
     sb.append("]");
     return sb.toString();
@@ -470,28 +744,37 @@ class Main {
       return toJsonList((List<?>) obj);
     }
     if (obj instanceof String) {
-      return "\\\"" + escapeJson((String) obj) + "\\\"";
+      return "" + (char) 34 + escapeJson((String) obj) + (char) 34;
     }
     if (obj instanceof Boolean) {
       return ((Boolean) obj) ? "true" : "false";
     }
+${usesListNode ? `    if (obj instanceof ListNode) {
+      return toJson((ListNode) obj);
+    }` : ""}
     return String.valueOf(obj);
   }
+${usesListNode ? JAVA_LISTNODE_HELPERS : ""}
 
   public static void main(String[] args) {
     ${indentLines(declarations, "    ")}
     Solution solution = new Solution();
-    Object result = solution.${methodName}(${argList});
-    System.out.println(toJson(result));
+${returnsListNode ? `    ListNode result = solution.${methodName}(${argList});
+    System.out.println(toJson(result));` : `    Object result = solution.${methodName}(${argList});
+    System.out.println(toJson(result));`}
   }
 }`;
 
+  const listNodeDef = usesListNode ? JAVA_LISTNODE_CLASS : "";
   return {
-    sourceCode: `import java.util.*;\n${solutionCode}\n${mainCode}`,
+    sourceCode: `import java.util.*;\n${listNodeDef}\n${solutionCode}\n${mainCode}`,
     usesStdin: false,
   };
 };
 
+// ─────────────────────────────────────────────────────────────
+// C++ wrapper
+// ─────────────────────────────────────────────────────────────
 const generateCppWrapper = (code, input) => {
   if (/\bmain\s*\(/.test(code)) {
     return { sourceCode: code, usesStdin: true };
@@ -507,19 +790,29 @@ const generateCppWrapper = (code, input) => {
     return { sourceCode: code, usesStdin: true };
   }
 
-  const { declarations, argList } = buildCppDeclarations(assignments);
+  const usesListNode = codeUsesListNode(code);
+  const listNodeParams = usesListNode ? getCppListNodeParams(code) : new Set();
+
+  const { declarations, argList } = buildCppDeclarations(assignments, listNodeParams);
   const hasSolutionClass = /class\s+Solution\b/.test(code);
   const callLine = hasSolutionClass
     ? `Solution solution; auto result = solution.${functionName}(${argList});`
     : `auto result = ${functionName}(${argList});`;
+
+  // Strip the ListNode comment definition from user code to avoid redeclaration
+  const cleanCode = usesListNode
+    ? code.replace(/\/\*\*[\s\S]*?\*\/\s*\n?/g, (match) =>
+      /ListNode/.test(match) ? "" : match
+    )
+    : code;
 
   const helperCode = `
 string escapeJson(const string& value) {
   string out;
   out.reserve(value.size());
   for (char ch : value) {
-    if (ch == '\\' || ch == '"') {
-      out.push_back('\\');
+    if (ch == '\\\\' || ch == '"') {
+      out.push_back('\\\\');
     }
     out.push_back(ch);
   }
@@ -527,7 +820,7 @@ string escapeJson(const string& value) {
 }
 
 void printResult(const string& value) {
-  cout << "\"" << escapeJson(value) << "\"";
+  cout << "\\"" << escapeJson(value) << "\\"";
 }
 
 void printResult(bool value) {
@@ -559,12 +852,18 @@ int main() {
   return 0;
 }`;
 
+  const listNodeDef = usesListNode ? CPP_LISTNODE_STRUCT : "";
+  const listNodeHelpers = usesListNode ? CPP_LISTNODE_HELPERS : "";
+
   return {
-    sourceCode: `#include <bits/stdc++.h>\nusing namespace std;\n${code}\n${helperCode}\n${mainCode}`,
+    sourceCode: `#include <bits/stdc++.h>\nusing namespace std;\n${listNodeDef}\n${cleanCode}\n${listNodeHelpers}\n${helperCode}\n${mainCode}`,
     usesStdin: false,
   };
 };
 
+// ─────────────────────────────────────────────────────────────
+// Python wrapper
+// ─────────────────────────────────────────────────────────────
 const generatePythonWrapper = (code, input) => {
   const functionName = getPythonFunctionName(code);
   if (!functionName) {
@@ -576,16 +875,38 @@ const generatePythonWrapper = (code, input) => {
     return { sourceCode: code, usesStdin: true };
   }
 
+  const usesListNode = codeUsesListNode(code);
+  const listNodeParams = usesListNode ? getPythonListNodeParams(code) : new Set();
+
   const declarations = assignments
-    .map(({ name, value }) => `${name} = ${value}`)
+    .map(({ name, value }) => {
+      if (listNodeParams.has(name)) {
+        return `${name} = build_list(${value})`;
+      }
+      return `${name} = ${value}`;
+    })
     .join("\n");
   const argList = assignments.map(({ name }) => name).join(", ");
 
-  const wrappedCode = `
-${code}
+  // Strip the ListNode comment definition from user code to avoid redeclaration
+  const cleanCode = usesListNode
+    ? code.replace(/^#\s*Definition for singly-linked list\.[\s\S]*?(?=\nclass\s)/m, "")
+      .replace(/^#\s*class ListNode:.*\n(?:#.*\n)*/m, "")
+    : code;
 
-${declarations}
-
+  const resultBlock = usesListNode
+    ? `
+import json
+_result = ${functionName}(${argList})
+if isinstance(_result, ListNode) or _result is None:
+    print(json.dumps(list_to_array(_result), separators=(",", ":")))
+elif isinstance(_result, bool):
+    print("true" if _result else "false")
+elif isinstance(_result, (list, dict)):
+    print(json.dumps(_result, separators=(",", ":")))
+else:
+    print(_result)`
+    : `
 import json
 _result = ${functionName}(${argList})
 if isinstance(_result, bool):
@@ -593,12 +914,23 @@ if isinstance(_result, bool):
 elif isinstance(_result, (list, dict)):
     print(json.dumps(_result, separators=(",", ":")))
 else:
-    print(_result)
+    print(_result)`;
+
+  const wrappedCode = `
+${usesListNode ? PYTHON_LISTNODE_HELPERS : ""}
+
+${cleanCode}
+
+${declarations}
+${resultBlock}
 `;
 
   return { sourceCode: wrappedCode.trim(), usesStdin: false };
 };
 
+// ─────────────────────────────────────────────────────────────
+// Main entry point
+// ─────────────────────────────────────────────────────────────
 const buildSubmissionCode = (code, input, languageId) => {
   if (isJavaScript(languageId)) {
     return { sourceCode: generateJavaScriptWrapper(code, input), usesStdin: false };
